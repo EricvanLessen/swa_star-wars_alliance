@@ -1,0 +1,48 @@
+name: Exercise 2 verification
+on:
+  push:
+    branches: [exercise-2-integration]
+  pull_request:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [player-service, match-service]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: ${{ matrix.service }}/pom.xml
+      - name: Unit tests
+        run: mvn -B test
+        working-directory: ${{ matrix.service }}
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start services
+        run: docker compose up -d --build
+      - name: Wait for REST APIs
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8081/players >/dev/null && curl -s -o /dev/null -w '%{http_code}' http://localhost:8082/matches/1 | grep -q 404; then exit 0; fi
+            sleep 3
+          done
+          docker compose logs
+          exit 1
+      - name: Exercise synchronous lineup scenario
+        run: |
+          curl -fsS -X POST http://localhost:8081/players -H 'Content-Type: application/json' -d '{"name":"Alice","active":true}'
+          curl -fsS -X POST http://localhost:8082/matches -H 'Content-Type: application/json' -d '{"opponent":"TTC Aachen","date":"2026-11-12","teamSize":1}'
+          curl -fsS -X PUT http://localhost:8081/players/1/availability/1 -H 'Content-Type: application/json' -d '{"available":true}'
+          curl -fsS -X POST http://localhost:8082/matches/1/lineup/propose | python3 -c 'import json,sys; a=json.load(sys.stdin); assert a["complete"] and a["players"][0]["name"]=="Alice"'
+      - name: Container logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Stop containers
+        if: always()
+        run: docker compose down
