@@ -26,7 +26,7 @@ def ready():
                 if e.code not in (400, 404, 405):
                     ok = False
                     break
-            except (urllib.error.URLError, TimeoutError):
+            except (urllib.error.URLError, OSError):
                 ok = False
                 break
         if ok:
