@@ -21,7 +21,7 @@ public final class Lineup {
     public Lineup(LineupId id, MatchId matchId, TeamId teamId, List<PlayerId> playerIds) {
         if (id == null || matchId == null || teamId == null)
             throw new IllegalArgumentException("lineupId, matchId and teamId are required");
-        if (playerIds == null || playerIds.isEmpty() || playerIds.contains(null))
+        if (playerIds == null || playerIds.isEmpty() || playerIds.stream().anyMatch(p -> p == null))
             throw new IllegalArgumentException("A lineup requires at least one valid player");
         if (new HashSet<>(playerIds).size() != playerIds.size())
             throw new IllegalArgumentException("A player cannot appear twice in one lineup");
