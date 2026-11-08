@@ -1,65 +1,51 @@
 package de.rwth.matchday.match.application.service;
 
+import de.rwth.matchday.match.domain.*;
 import de.rwth.matchday.match.port.out.*;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
-
 import java.time.LocalDate;
-import java.util.Comparator;
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.NoSuchElementException;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
 
-/**
- * Application Service
- */
+/** Owns match workflows; other contexts consume a confirmed result snapshot. */
 @Service
-@RequiredArgsConstructor
 public class MatchService {
-    private final LoadIndividualMatchPort loadIndividualMatchPort;
-    private final LoadMatchPort loadMatchPort;
-    private final UpdateIndividualMatchPort updateIndividualMatchPort;
-    private final UpdateMatchPort updateMatchPort;
-    private final DeleteIndividualMatchPort deleteIndividualMatchPort;
-    private final DeleteMatchPort deleteMatchPort;
-    private final PlayerPort playerPort;
-    //TODO Outgoing Adapter for player Service (needs a Port)
-    private final PlayerClient players;
+    private final LoadMatchPort loader;
+    private final UpdateMatchPort writer;
 
+    public MatchService(LoadMatchPort loader, UpdateMatchPort writer) {
+        this.loader = loader;
+        this.writer = writer;
+    }
 
-    public Match create(String opponent, LocalDate date, int teamSize) {
-        if (opponent == null || opponent.isBlank() || date == null || teamSize < 1)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "opponent, date and positive teamSize required");
-        long id = ids.incrementAndGet();
-        Match match = new Match(id, opponent.trim(), date, teamSize);
-        matches.put(id, match);
+    public Match create(UUID teamId, String teamName, String opponent, LocalDate date,
+                        String season, Venue venue) {
+        Match match = new Match(new MatchId(), date, opponent,
+            new TeamId(teamId), venue == null ? Venue.HOME : venue, teamName, season);
+        writer.saveMatch(match);
         return match;
     }
-
-    /**
-     * get a match
-     * @param id matchid of requested match
-     * @return match id
-     */
-    public Match get(long id) {
-        Match match = matches.get(id);
-        if (match == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Match not found");
+    public Match get(UUID id) {
+        Match match = loader.loadMatch(new MatchId(id));
+        if (match == null) throw new NoSuchElementException("Match not found");
         return match;
     }
-    //TODO domain logic should not be present in Application Service
-    // Business operation: request availability synchronously; propose a deterministic lineup.
-    // This is a prototype selection rule, not a table tennis league ranking policy.
-    public LineupProposal propose(long matchId) {
-        Match match = get(matchId);
-        List<EligiblePlayer> eligible = players.eligible(matchId);
-        List<EligiblePlayer> selected = eligible.stream().sorted(Comparator.comparingLong(EligiblePlayer::id)).limit(match.teamSize()).toList();
-        return new LineupProposal(matchId, selected, selected.size() == match.teamSize());
+    public Match record(UUID id, int ownGames, int opponentGames) {
+        Match match = get(id);
+        match.recordResult(ownGames, opponentGames);
+        writer.saveMatch(match);
+        return match;
     }
-    //TODO should be its own class whether its a Entity or something else
-    //TODO is out of scope of this service
-    public record LineupProposal(long matchId, List<EligiblePlayer> players, boolean complete) {
+    public Match confirm(UUID id) {
+        Match match = get(id);
+        match.confirmResult();
+        writer.saveMatch(match);
+        return match;
+    }
+    public Match confirmed(UUID id) {
+        Match match = get(id);
+        if (!match.isConfirmed()) throw new IllegalStateException("Match result is not confirmed");
+        return match;
     }
 }
+

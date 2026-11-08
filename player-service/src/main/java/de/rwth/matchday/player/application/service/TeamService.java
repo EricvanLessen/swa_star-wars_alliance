@@ -3,113 +3,82 @@ package de.rwth.matchday.player.application.service;
 import de.rwth.matchday.player.domain.*;
 import de.rwth.matchday.player.port.in.*;
 import de.rwth.matchday.player.port.out.*;
-import lombok.RequiredArgsConstructor;
+import java.util.HashSet;
 import org.springframework.stereotype.Service;
 
+/** Membership updates keep Player.teamId and Team.members consistent. */
 @Service
-@RequiredArgsConstructor
-public class TeamService implements DeleteTeamUseCase, CreateTeamUseCase, UpdateTeamUseCase, AddTeamMemberUseCase, RemoveTeamMemberUseCase, UpdateTeamMembersUseCase {
-    private final LoadTeamPort loadTeamPort;
-    private final UpdateTeamPort updateTeamPort;
-    private final DeleteTeamPort deleteTeamPort;
-    private final LoadPlayerPort loadPlayerPort;
-    private final UpdatePlayerPort updatePlayerPort;
-
-    /**
-     * create a player with given attributes
-     *
-     * @return the created player
-     */
-    public Team create(Team team) {
-        updateTeamPort.saveTeam(team);
+public class TeamService implements DeleteTeamUseCase,CreateTeamUseCase,UpdateTeamUseCase,
+        AddTeamMemberUseCase,RemoveTeamMemberUseCase,UpdateTeamMembersUseCase {
+    private final LoadTeamPort teams;
+    private final UpdateTeamPort saveTeam;
+    private final DeleteTeamPort deleteTeam;
+    private final LoadPlayerPort players;
+    private final UpdatePlayerPort savePlayer;
+    public TeamService(LoadTeamPort teams,UpdateTeamPort saveTeam,DeleteTeamPort deleteTeam,
+                       LoadPlayerPort players,UpdatePlayerPort savePlayer) {
+        this.teams=teams;this.saveTeam=saveTeam;this.deleteTeam=deleteTeam;
+        this.players=players;this.savePlayer=savePlayer;
+    }
+    @Override public Team create(Team team) { saveTeam.saveTeam(team); return team; }
+    @Override public Team update(UpdateTeamCommand cmd) {
+        Team team=requiredTeam(cmd.id());
+        if (cmd.name()!=null) team.changeTeamName(new TeamName(cmd.name()));
+        if (cmd.members()!=null) updateTeamMembers(new UpdateTeamMembersCommand(cmd.id(),cmd.members()));
+        saveTeam.saveTeam(team);
         return team;
     }
-
-    /**
-     * update Team attributes
-     */
-    public Team update(UpdateTeamCommand updateTeamCommand) {
-        Team team = loadTeamPort.loadTeam(updateTeamCommand.id());
-        //update name of Team
-        if (updateTeamCommand.name() != null && !updateTeamCommand.name().isEmpty()) {
-            team.changeTeamName(new TeamName(updateTeamCommand.name()));
+    @Override public Team deleteTeam(TeamId id) {
+        Team team=requiredTeam(id);
+        for (PlayerId playerId: new HashSet<>(team.getMembers())) {
+            removeTeamMember(new RemoveTeamMemberCommand(id,playerId));
         }
-        updateTeamMembers(new UpdateTeamMembersCommand(team.getId(), updateTeamCommand.members()));
-
-        updateTeamPort.saveTeam(team);
+        return deleteTeam.deleteTeam(id);
+    }
+    @Override public Team addTeamMember(AddTeamMemberCommand cmd) {
+        Team team=requiredTeam(cmd.teamId());
+        Player player=requiredPlayer(cmd.playerId());
+        if (player.isInTeam() && !player.getTeamId().equals(team.getId())) {
+            Team oldTeam=requiredTeam(player.getTeamId());
+            oldTeam.removeMember(player.getId());
+            saveTeam.saveTeam(oldTeam);
+        }
+        player.changeTeam(team.getId());
+        team.addMember(player.getId());
+        savePlayer.savePlayer(player);
+        saveTeam.saveTeam(team);
         return team;
     }
-
-    @Override
-    public Team deleteTeam(TeamId teamId) {
-        //TODO add Team member handling
-        return deleteTeamPort.deleteTeam(teamId);
-    }
-    /**
-     * aggressive reassigning of Teammember. Even if Players are in other Teams they simply get overriden
-     * @return
-     */
-    @Override
-    public Team addTeamMember(AddTeamMemberCommand addTeamMemberCommand) {
-        TeamId teamId = addTeamMemberCommand.teamId();
-        PlayerId playerId = addTeamMemberCommand.playerId();
-
-        Team team = loadTeamPort.loadTeam(teamId);
-        if(team.isMember(playerId)){
-            return team;
-        }
-        Player p = loadPlayerPort.loadPlayer(playerId);
-        if(p.isInTeam()) {
-            //remove current player from old Team
-            Team oldTeam = loadTeamPort.loadTeam(p.getTeamId());
-            oldTeam.removeMember(playerId);
-            updateTeamPort.saveTeam(oldTeam);
-
-            //add to new Team
-            p.changeTeam(teamId);
-            updatePlayerPort.savePlayer(p);
-        }
-        team.addMember(playerId);
-        updateTeamPort.saveTeam(team);
+    @Override public Team removeTeamMember(RemoveTeamMemberCommand cmd) {
+        Team team=requiredTeam(cmd.teamId());
+        Player player=requiredPlayer(cmd.playerId());
+        if (!team.isMember(player.getId()) || !cmd.teamId().equals(player.getTeamId()))
+            throw new IllegalArgumentException("Player does not belong to this team");
+        team.removeMember(player.getId());
+        player.changeTeam(null);
+        savePlayer.savePlayer(player);
+        saveTeam.saveTeam(team);
         return team;
     }
-
-    /**
-     * aggressive reassigning of Teammembers. Even if Players are in other Teams they simply get overriden
-     * @return
-     */
-    @Override
-    public Team updateTeamMembers(UpdateTeamMembersCommand updateTeamMembers) {
-        Team team = loadTeamPort.loadTeam(updateTeamMembers.teamId());
-        if (updateTeamMembers.members() != null) {
-            if (team.hasMembers()) {
-                //go over old List of Members
-                team.getMembers().forEach(memberId -> {
-                    if (updateTeamMembers.members().contains(memberId))
-                        return;
-                    removeTeamMember(new RemoveTeamMemberCommand(team.getId(), memberId));
-                });
-            }
-            updateTeamMembers.members().forEach(memberId -> {
-                addTeamMember(new AddTeamMemberCommand(team.getId(), memberId));
-            });
-        }
-        return null;
-    }
-
-    @Override
-    public Team removeTeamMember(RemoveTeamMemberCommand removeTeamMemberCommand) {
-        //remove from Team
-        Player p = loadPlayerPort.loadPlayer(removeTeamMemberCommand.playerId());
-        Team team = loadTeamPort.loadTeam(p.getTeamId());
-        if(!team.isMember(p.getId())){
-            throw new IllegalArgumentException("Player is not in this Team! Therefore cannot be removed");
-        }
-        p.changeTeam(null);
-        updatePlayerPort.savePlayer(p);
-
-        team.removeMember(p.getId());
-        updateTeamPort.saveTeam(team);
+    @Override public Team updateTeamMembers(UpdateTeamMembersCommand cmd) {
+        Team team=requiredTeam(cmd.teamId());
+        if (cmd.members()==null) return team;
+        var desired=new HashSet<>(cmd.members());
+        for (PlayerId playerId: new HashSet<>(team.getMembers()))
+            if (!desired.contains(playerId)) removeTeamMember(
+                new RemoveTeamMemberCommand(team.getId(),playerId));
+        for (PlayerId playerId: desired) addTeamMember(new AddTeamMemberCommand(team.getId(),playerId));
         return team;
+    }
+    private Team requiredTeam(TeamId id) {
+        Team t=teams.loadTeam(id);
+        if (t==null) throw new java.util.NoSuchElementException("Team not found");
+        return t;
+    }
+    private Player requiredPlayer(PlayerId id) {
+        Player p=players.loadPlayer(id);
+        if (p==null) throw new java.util.NoSuchElementException("Player not found");
+        return p;
     }
 }
+

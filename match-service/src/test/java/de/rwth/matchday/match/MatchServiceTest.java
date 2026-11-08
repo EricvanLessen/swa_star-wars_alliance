@@ -1,63 +1,38 @@
 package de.rwth.matchday.match;
 
+import de.rwth.matchday.match.application.service.MatchService;
+import de.rwth.matchday.match.adapter.out.persistence.MatchRepositoryMockup;
+import de.rwth.matchday.match.domain.*;
 import java.time.LocalDate;
-import java.util.List;
-
-import de.rwth.matchday.match.domain.EligiblePlayer;
+import java.util.NoSuchElementException;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
-
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 class MatchServiceTest {
-    @Test
-    void proposesUpToTeamSizeAndFlagsIncompleteLineup() {
-      //  PlayerClient client = mock(PlayerClient.class);
-       // when(client.eligible(1L)).thenReturn(List.of(new EligiblePlayer(3, "C", true), new EligiblePlayer(1, "A", true), new EligiblePlayer(2, "B", true)));
-       // MatchService service = new MatchService(client);
-       // service.create("Opponents", LocalDate.of(2026, 11, 12), 2);
-       // var result = service.propose(1);
-       // assertEquals(List.of(1L, 2L), result.players().stream().map(EligiblePlayer::id).toList());
-       // assertTrue(result.complete());
-       // verify(client).eligible(1L);
+    private static MatchService service() {
+        var r = new MatchRepositoryMockup();
+        return new MatchService(r, r);
     }
-
-    @Test
-    void flagsIncompleteLineup() {
-        PlayerClient client = mock(PlayerClient.class);
-        when(client.eligible(1L)).thenReturn(List.of(new EligiblePlayer(7, "Alice", true)));
-        MatchService service = new MatchService(client);
-        service.create("Opponents", LocalDate.of(2026, 11, 12), 2);
-
-        var result = service.propose(1);
-
-        assertEquals(1, result.players().size());
-        assertFalse(result.complete());
+    @Test void createsRecordsAndConfirms() {
+        var s = service();
+        var m = s.create(UUID.randomUUID(), "Alemannia", "Opponents",
+            LocalDate.of(2026,11,12), "2026-27", Venue.HOME);
+        assertEquals(MatchResult.PENDING, m.result());
+        assertThrows(IllegalStateException.class, () -> s.confirmed(m.getId().matchId()));
+        s.record(m.getId().matchId(),6,4);
+        assertEquals(MatchResult.OWN_WIN, m.result());
+        s.confirm(m.getId().matchId());
+        assertTrue(s.confirmed(m.getId().matchId()).isConfirmed());
+        s.record(m.getId().matchId(),3,5);
+        assertFalse(m.isConfirmed());
+        assertEquals(MatchResult.OPPONENT_WIN, m.result());
     }
-
-    @Test
-    void validatesMatchInput() {
-        MatchService service = new MatchService(mock(PlayerClient.class));
-        LocalDate date = LocalDate.of(2026, 11, 12);
-
-        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
-                () -> service.create(" ", date, 1)).getStatusCode());
-        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
-                () -> service.create("Opponent", null, 1)).getStatusCode());
-        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
-                () -> service.create("Opponent", date, 0)).getStatusCode());
-    }
-
-    @Test
-    void createsAndRetrievesMatchAndRejectsUnknownId() {
-        MatchService service = new MatchService(mock(PlayerClient.class));
-
-        Match match = service.create(" Opponent ", LocalDate.of(2026, 11, 12), 2);
-
-        assertEquals("Opponent", match.opponent());
-        assertEquals(match, service.get(match.id()));
-        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ResponseStatusException.class,
-                () -> service.get(999)).getStatusCode());
+    @Test void validatesInputAndUnknownIds() {
+        var s=service();
+        assertThrows(IllegalArgumentException.class,
+            ()->s.create(UUID.randomUUID()," ","Opponent",LocalDate.now(),"2026-27",Venue.HOME));
+        assertThrows(NoSuchElementException.class,()->s.get(UUID.randomUUID()));
     }
 }
+

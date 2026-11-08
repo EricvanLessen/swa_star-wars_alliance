@@ -3,71 +3,69 @@ package de.rwth.matchday.player.application.service;
 import de.rwth.matchday.player.domain.*;
 import de.rwth.matchday.player.port.in.*;
 import de.rwth.matchday.player.port.out.*;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
-
 import java.util.List;
+import java.util.NoSuchElementException;
+import org.springframework.stereotype.Service;
 
-/**
- * Application Service - Application Layer
- * this class orchestrate the service
- */
 @Service
-@RequiredArgsConstructor
-public class PlayerService implements CreatePlayerUseCase,PlayerEligibleForUseCase, UpdatePlayerUseCase, DeletePlayerUseCase  {
-
-    private final LoadPlayerPort loadPlayerPort;
-    private final UpdatePlayerPort updatePlayerPort;
-    private final AvailabilityPort availabilityPort;
-    private final DeletePlayerPort deletePlayerPort;
-    private final LoadTeamPort loadTeamPort;
-    private final UpdateTeamPort updateTeamPort;
-    /**
-     * create a player with given attributes
-     * @return the created player
-     */
-    public Player create(Player player) {
-        updatePlayerPort.savePlayer(player);
-        return player;
+public class PlayerService implements CreatePlayerUseCase,PlayerEligibleForUseCase,
+ UpdatePlayerUseCase,DeletePlayerUseCase {
+ private final LoadPlayerPort players;
+ private final UpdatePlayerPort savePlayer;
+ private final AvailabilityPort availability;
+ private final DeletePlayerPort deletePlayer;
+ private final LoadTeamPort teams;
+ private final UpdateTeamPort saveTeam;
+ public PlayerService(LoadPlayerPort players, UpdatePlayerPort savePlayer,
+     AvailabilityPort availability,DeletePlayerPort deletePlayer,
+     LoadTeamPort teams,UpdateTeamPort saveTeam) {
+    this.players=players;this.savePlayer=savePlayer;this.availability=availability;
+    this.deletePlayer=deletePlayer;this.teams=teams;this.saveTeam=saveTeam;
+ }
+ @Override public Player create(Player p) {
+    savePlayer.savePlayer(p);
+    if (p.isInTeam()) {
+        Team team=teams.loadTeam(p.getTeamId());
+        if (team==null) throw new NoSuchElementException("Team not found");
+        team.addMember(p.getId());saveTeam.saveTeam(team);
     }
-    public Player update(UpdatePlayerCommand updatePlayerCommand) {
-        Player p = loadPlayerPort.loadPlayer(updatePlayerCommand.id());
-        if (updatePlayerCommand.name() != null && !updatePlayerCommand.name().isEmpty()) {
-            p.changeName(new PlayerName(updatePlayerCommand.name()));
+    return p;
+ }
+ @Override public Player update(UpdatePlayerCommand cmd) {
+    Player p=requiredPlayer(cmd.id());
+    if (cmd.name()!=null) p.changeName(new PlayerName(cmd.name()));
+    if (cmd.teamId()!=null && cmd.teamId().isTeam() &&
+        !cmd.teamId().equals(p.getTeamId())) {
+        if (p.isInTeam()) {
+            Team old=teams.loadTeam(p.getTeamId());
+            if (old!=null) {old.removeMember(p.getId());saveTeam.saveTeam(old);}
         }
-        if(updatePlayerCommand.teamId().isTeam()){
-            p.changeTeam(updatePlayerCommand.teamId());
-        }
-        if(updatePlayerCommand.active() != p.isActive()){
-            p.toggleActive();
-        }
-        updatePlayerPort.savePlayer(p);
-        return p;
+        Team team=teams.loadTeam(cmd.teamId());
+        if (team==null) throw new NoSuchElementException("Team not found");
+        team.addMember(p.getId());saveTeam.saveTeam(team);
+        p.changeTeam(cmd.teamId());
     }
-    /**
-     * get all members eligible for match with given matchId
-     * @param matchId the matchId of the match that all eligible members are requested of
-     * @return list of eligible members - empty if match does not exist
-     */
-    // TODO this function belongs to the domain service - Business operation: only active members who explicitly opted in are eligible.
-    public List<Player> eligibleFor(MatchId matchId) {
-        //if (matchId <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid match ID");
-        List<PlayerId> responses = availabilityPort.getAvailablePlayersForMatch(matchId);
-        //TODO add that this list is filtered by Teams...
-        return loadPlayerPort.loadPlayers().values().stream().filter(Player::isActive).filter(p -> responses.contains(p.getId())).toList();
+    if (cmd.active()!=p.isActive()) p.toggleActive();
+    savePlayer.savePlayer(p);
+    return p;
+ }
+ @Override public List<Player> eligibleFor(MatchId matchId) {
+    List<PlayerId> available=availability.getAvailablePlayersForMatch(matchId);
+    return players.loadPlayers().values().stream().filter(Player::isActive)
+      .filter(p->available.contains(p.getId())).toList();
+ }
+ @Override public Player deletePlayer(PlayerId id) {
+    Player p=requiredPlayer(id);
+    if (p.isInTeam()) {
+        Team team=teams.loadTeam(p.getTeamId());
+        if (team!=null) {team.removeMember(p.getId());saveTeam.saveTeam(team);}
     }
-
-    @Override
-    public Player deletePlayer(PlayerId id) {
-        //TODO add TeamId handling
-        Player p = loadPlayerPort.loadPlayer(id);
-        if(p.isInTeam()){
-            Team team = loadTeamPort.loadTeam(p.getTeamId());
-            team.removeMember(p.getId());
-            updateTeamPort.saveTeam(team);
-        }
-        return deletePlayerPort.deletePlayer(id);
-    }
+    return deletePlayer.deletePlayer(id);
+ }
+ private Player requiredPlayer(PlayerId id) {
+    Player p=players.loadPlayer(id);
+    if (p==null) throw new NoSuchElementException("Player not found");
+    return p;
+ }
 }
+

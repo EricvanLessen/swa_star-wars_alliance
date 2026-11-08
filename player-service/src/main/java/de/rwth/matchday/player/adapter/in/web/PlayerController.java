@@ -1,74 +1,58 @@
 package de.rwth.matchday.player.adapter.in.web;
 
 import de.rwth.matchday.player.domain.*;
-import de.rwth.matchday.player.port.in.CreatePlayerUseCase;
-import de.rwth.matchday.player.port.in.DeletePlayerUseCase;
-import de.rwth.matchday.player.port.in.PlayerEligibleForUseCase;
-import de.rwth.matchday.player.port.in.UpdatePlayerUseCase;
+import de.rwth.matchday.player.port.in.*;
 import de.rwth.matchday.player.port.out.LoadPlayerPort;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 import java.util.UUID;
+import org.springframework.web.bind.annotation.*;
 
-/**
- * (incoming)Rest Adapter for  Match Service
- */
+/** REST boundary for player CRUD and availability-based eligibility. */
 @RestController
 @RequestMapping("/players")
-@RequiredArgsConstructor
-public class PlayerController  {
-    private final  UpdatePlayerUseCase updatePlayerUseCase;
-    private final CreatePlayerUseCase createPlayerUseCase;
-    private final DeletePlayerUseCase deletePlayerUseCase;
-    private final PlayerEligibleForUseCase playerEligibleForUseCase;
-    // Avoid routing simple queries through the application service.
-    private final LoadPlayerPort loadPlayerPort;
+public class PlayerController {
+    private final UpdatePlayerUseCase update;
+    private final CreatePlayerUseCase create;
+    private final DeletePlayerUseCase delete;
+    private final PlayerEligibleForUseCase eligible;
+    private final LoadPlayerPort loader;
 
-    @PostMapping
-    public PlayerResponse create(@RequestBody PlayerRequest request) {
-        Player p = new Player(new PlayerName(request.name()), new TeamId(request.teamId()), request.active());
-        createPlayerUseCase.create(p);
-        return PlayerResponse.from(p);
+    public PlayerController(UpdatePlayerUseCase update, CreatePlayerUseCase create,
+                            DeletePlayerUseCase delete, PlayerEligibleForUseCase eligible,
+                            LoadPlayerPort loader) {
+        this.update=update; this.create=create; this.delete=delete; this.eligible=eligible; this.loader=loader;
     }
 
-    @GetMapping
-    public List<PlayerResponse> list() {
-        return loadPlayerPort.loadPlayers().values().stream().map(PlayerResponse::from).toList();
-    }
-
-    @PutMapping("/{id}")
-    public PlayerResponse update(@PathVariable PlayerId id, @Valid @RequestBody PlayerRequest request) {
-        UpdatePlayerUseCase.UpdatePlayerCommand updatePlayerCommand = new UpdatePlayerUseCase.UpdatePlayerCommand(id, request.name(), new TeamId(request.teamId()), request.active());
-        Player p = updatePlayerUseCase.update(updatePlayerCommand);
-        return PlayerResponse.from(p);
-    }
-
-    @GetMapping("/{id}")
-    public PlayerResponse get(@PathVariable PlayerId id) {
-        return PlayerResponse.from(loadPlayerPort.loadPlayer(id));
-    }
-
-    @GetMapping("/eligible/{id}")
-    public List<PlayerResponse> eligible(@PathVariable MatchId id) {
-        return playerEligibleForUseCase.eligibleFor(id).stream().map(PlayerResponse::from).toList();
-    }
-    @DeleteMapping("/{id}")
-    public PlayerResponse delete(@PathVariable PlayerId id) {
-        Player p = deletePlayerUseCase.deletePlayer(id);
-        return PlayerResponse.from(p);
-    }
-    public record PlayerRequest(
-            @NotBlank String name, UUID teamId, @NotNull boolean active) {
-    }
-
+    public record PlayerRequest(String name, UUID teamId, boolean active) {}
     public record PlayerResponse(UUID id, String name, UUID teamId, boolean active) {
-        public static PlayerResponse from(Player p) {
-            return new PlayerResponse(p.getId().playerId(), p.getName().name(),p.getTeamId().teamId(), p.isActive());
+        static PlayerResponse from(Player p) {
+            if (p == null) throw new java.util.NoSuchElementException("Player not found");
+            return new PlayerResponse(p.getId().playerId(),p.getName().name(),
+                p.isInTeam()?p.getTeamId().teamId():null,p.isActive());
         }
     }
+    @PostMapping
+    public PlayerResponse create(@RequestBody PlayerRequest request) {
+        if (request == null) throw new IllegalArgumentException("Request required");
+        var p = new Player(new PlayerName(request.name()),
+            request.teamId()==null?null:new TeamId(request.teamId()),request.active());
+        return PlayerResponse.from(create.create(p));
+    }
+    @GetMapping
+    public List<PlayerResponse> list() { return loader.loadPlayers().values().stream().map(PlayerResponse::from).toList(); }
+    @PutMapping("/{id}")
+    public PlayerResponse update(@PathVariable UUID id,@RequestBody PlayerRequest request) {
+        if (request == null) throw new IllegalArgumentException("Request required");
+        return PlayerResponse.from(update.update(new UpdatePlayerUseCase.UpdatePlayerCommand(
+            new PlayerId(id),request.name(),request.teamId()==null?null:new TeamId(request.teamId()),request.active())));
+    }
+    @GetMapping("/eligible/{id}")
+    public List<PlayerResponse> eligible(@PathVariable UUID id) {
+        return eligible.eligibleFor(new MatchId(id)).stream().map(PlayerResponse::from).toList();
+    }
+    @GetMapping("/{id}")
+    public PlayerResponse get(@PathVariable UUID id) { return PlayerResponse.from(loader.loadPlayer(new PlayerId(id))); }
+    @DeleteMapping("/{id}")
+    public PlayerResponse delete(@PathVariable UUID id) { return PlayerResponse.from(delete.deletePlayer(new PlayerId(id))); }
 }
+

@@ -3,87 +3,67 @@ package de.rwth.matchday.player.adapter.in.web;
 import de.rwth.matchday.player.domain.*;
 import de.rwth.matchday.player.port.in.*;
 import de.rwth.matchday.player.port.out.LoadTeamPort;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
-import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 import java.util.UUID;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/teams")
-@RequiredArgsConstructor
-/**
- * (incoming)Rest Adapter for  Team Service
- */
 public class TeamController {
-
-    private final UpdateTeamUseCase updateTeamUseCase;
-    private final CreateTeamUseCase createTeamUseCase;
-    private final DeleteTeamUseCase deleteTeamUseCase;
-    private final AddTeamMemberUseCase addTeamMemberUseCase;
-    private final UpdateTeamMembersUseCase updateTeamMembersUseCase;
-    private final RemoveTeamMemberUseCase removeTeamMemberUseCase;
-    // Avoid routing simple queries through the application service.
-    private final LoadTeamPort loadTeamPort;
-
-    @PostMapping
-    public TeamResponse create(@RequestBody TeamRequest request) {
-        Team p = new Team(new TeamName(request.name()));
-        createTeamUseCase.create(p);
-        return TeamResponse.from(p);
+    private final UpdateTeamUseCase update;
+    private final CreateTeamUseCase create;
+    private final DeleteTeamUseCase delete;
+    private final AddTeamMemberUseCase add;
+    private final UpdateTeamMembersUseCase members;
+    private final RemoveTeamMemberUseCase remove;
+    private final LoadTeamPort loader;
+    public TeamController(UpdateTeamUseCase update, CreateTeamUseCase create, DeleteTeamUseCase delete,
+        AddTeamMemberUseCase add,UpdateTeamMembersUseCase members,RemoveTeamMemberUseCase remove, LoadTeamPort loader) {
+        this.update=update;this.create=create;this.delete=delete;this.add=add;this.members=members;
+        this.remove=remove;this.loader=loader;
     }
-
-    @GetMapping
-    public List<TeamResponse> list() {
-        return loadTeamPort.loadTeams().values().stream().map(TeamResponse::from).toList();
-    }
-
-    @PutMapping("/{id}")
-    public TeamResponse update(@PathVariable TeamId id, @Valid @RequestBody TeamRequest request) {
-        UpdateTeamUseCase.UpdateTeamCommand updateTeamCommand = new UpdateTeamUseCase.UpdateTeamCommand(id, request.name(),request.members());
-        Team p = updateTeamUseCase.update(updateTeamCommand);
-        return TeamResponse.from(p);
-    }
-    @PutMapping("/{teamId}/add/{memberId}")
-    public TeamResponse add(@PathVariable TeamId id, @PathVariable PlayerId memberId) {
-        AddTeamMemberUseCase.AddTeamMemberCommand addTeamMemberCommand = new AddTeamMemberUseCase.AddTeamMemberCommand(id, memberId);
-        Team p = addTeamMemberUseCase.addTeamMember(addTeamMemberCommand);
-        return TeamResponse.from(p);
-    }
-    @DeleteMapping("/{teamId}/remove/{memberId}")
-    public TeamResponse remove(@PathVariable TeamId id, @PathVariable PlayerId memberId) {
-        RemoveTeamMemberUseCase.RemoveTeamMemberCommand removeTeamMemberCommand = new RemoveTeamMemberUseCase.RemoveTeamMemberCommand(id,memberId);
-        Team p = removeTeamMemberUseCase.removeTeamMember(removeTeamMemberCommand);
-        return TeamResponse.from(p);
-    }
-    @GetMapping("/{id}")
-    public TeamResponse get(@PathVariable TeamId id) {
-        return TeamResponse.from(loadTeamPort.loadTeam(id));
-    }
-    @PutMapping("/members/{id}")
-    public TeamResponse update(@PathVariable TeamId id, @Valid @RequestBody TeamMembersRequest request) {
-        UpdateTeamMembersUseCase.UpdateTeamMembersCommand updateTeamMembersCommand = new UpdateTeamMembersUseCase.UpdateTeamMembersCommand(id,request.members());
-        Team p = updateTeamMembersUseCase.updateTeamMembers(updateTeamMembersCommand);
-        return TeamResponse.from(p);
-    }
-    @DeleteMapping("/{id}")
-    public TeamResponse delete(@PathVariable TeamId id) {
-        Team p = deleteTeamUseCase.deleteTeam(id);
-        return TeamResponse.from(p);
-    }
-
-    public record TeamRequest(
-            @NotBlank String name, List<PlayerId> members) {
-    }
-    public record TeamMembersRequest(List<PlayerId> members) {
-    }
-
-    public record TeamResponse(UUID id, String name, List<PlayerId> members) {
-        public static TeamResponse from(Team team) {
-            return new TeamResponse(team.getId().teamId(), team.getName().name(), team.getMembers().stream().toList());
+    public record TeamRequest(String name, List<UUID> members) {}
+    public record TeamMembersRequest(List<UUID> members) {}
+    public record TeamResponse(UUID id,String name,List<UUID> members) {
+        static TeamResponse from(Team t) {
+            if (t == null) throw new java.util.NoSuchElementException("Team not found");
+            return new TeamResponse(t.getId().teamId(),t.getName().name(),
+                t.getMembers().stream().map(PlayerId::playerId).toList());
         }
     }
+    @PostMapping
+    public TeamResponse create(@RequestBody TeamRequest request) {
+        if (request == null) throw new IllegalArgumentException("Request required");
+        return TeamResponse.from(create.create(new Team(new TeamName(request.name()))));
+    }
+    @GetMapping
+    public List<TeamResponse> list(){return loader.loadTeams().values().stream().map(TeamResponse::from).toList();}
+    @GetMapping("/{id}")
+    public TeamResponse get(@PathVariable UUID id){return TeamResponse.from(loader.loadTeam(new TeamId(id)));}
+    @PutMapping("/{id}")
+    public TeamResponse update(@PathVariable UUID id,@RequestBody TeamRequest request){
+        return TeamResponse.from(update.update(new UpdateTeamUseCase.UpdateTeamCommand(
+            new TeamId(id),request.name(),fromIds(request.members()))));
+    }
+    @PutMapping("/{teamId}/add/{memberId}")
+    public TeamResponse add(@PathVariable UUID teamId,@PathVariable UUID memberId){
+        return TeamResponse.from(add.addTeamMember(
+            new AddTeamMemberUseCase.AddTeamMemberCommand(new TeamId(teamId),new PlayerId(memberId))));
+    }
+    @DeleteMapping("/{teamId}/remove/{memberId}")
+    public TeamResponse remove(@PathVariable UUID teamId,@PathVariable UUID memberId){
+        return TeamResponse.from(remove.removeTeamMember(
+            new RemoveTeamMemberUseCase.RemoveTeamMemberCommand(new TeamId(teamId),new PlayerId(memberId))));
+    }
+    @PutMapping("/members/{id}")
+    public TeamResponse members(@PathVariable UUID id,@RequestBody TeamMembersRequest request){
+        return TeamResponse.from(members.updateTeamMembers(
+            new UpdateTeamMembersUseCase.UpdateTeamMembersCommand(new TeamId(id),fromIds(request.members()))));
+    }
+    @DeleteMapping("/{id}")
+    public TeamResponse delete(@PathVariable UUID id){return TeamResponse.from(delete.deleteTeam(new TeamId(id)));}
+    private static List<PlayerId> fromIds(List<UUID> ids){
+        return ids==null?null:ids.stream().map(PlayerId::new).toList();
+    }
 }
+

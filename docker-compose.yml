@@ -1,8 +1,16 @@
 services:
+  availability-service:
+    build: ./availability-service
+    ports:
+      - "8085:8080"
   player-service:
     build: ./player-service
+    environment:
+      AVAILABILITY_SERVICE_URL: http://availability-service:8080
     ports:
       - "8081:8080"
+    depends_on:
+      - availability-service
   match-service:
     build: ./match-service
     environment:
@@ -19,4 +27,16 @@ services:
     build: ./ranking-service
     ports:
       - "8084:8080"
+  llm-service:
+    build: ./llm-service
+    environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      KI_CONNECT_API_KEY: ${KI_CONNECT_API_KEY:-}
+      KI_CONNECT_MODEL: ${KI_CONNECT_MODEL:-}
+      KI_CONNECT_BASE_URL: ${KI_CONNECT_BASE_URL:-https://chat.kiconnect.nrw/api/v1}
+      MATCH_SERVICE_URL: http://match-service:8080
+    ports:
+      - "8086:8080"
+    depends_on:
+      - match-service
 
