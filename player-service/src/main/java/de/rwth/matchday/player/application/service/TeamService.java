@@ -50,9 +50,9 @@ public class TeamService implements DeleteTeamUseCase,CreateTeamUseCase,UpdateTe
         return team;
     }
     @Override public Team removeTeamMember(RemoveTeamMemberCommand cmd) {
-        Team team=requiredTeam(cmd.teamId());
+        Team team=requiredTeam(cmd.id());
         Player player=requiredPlayer(cmd.playerId());
-        if (!team.isMember(player.getId()) || !cmd.teamId().equals(player.getTeamId()))
+        if (!team.isMember(player.getId()) || !cmd.id().equals(player.getTeamId()))
             throw new IllegalArgumentException("Player does not belong to this team");
         team.removeMember(player.getId());
         player.changeTeam(null);
