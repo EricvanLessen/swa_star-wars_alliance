@@ -15,4 +15,8 @@ services:
     build: ./lineup-service
     ports:
       - "8083:8080"
+  ranking-service:
+    build: ./ranking-service
+    ports:
+      - "8084:8080"
 
