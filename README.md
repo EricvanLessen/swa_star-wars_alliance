@@ -70,3 +70,11 @@ scope boundaries, and the integration dependencies on future Team/Availability c
 Player/Match APIs. They must be updated after the team's current refactor is
 verified; this Lineup PR does not overwrite those services.
 
+## Ranking Service (independent implementation draft)
+
+A standalone `ranking-service/` is available on localhost:8084.
+To build just this service: `docker compose up --build ranking-service`.
+For tests: `mvn -f ranking-service/pom.xml test`.
+See [Ranking Service documentation](ranking-service/README.md) for the
+input contract, provisional standings rule, and remaining integration tasks.
+
