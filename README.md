@@ -54,8 +54,6 @@ Each service has a REST controller, business service and in-memory state. Match 
 
 ## Branches
 
-- `feature/player-service`: standalone Player Service.
-- `feature/match-service`: standalone Match Service.
-- `exercise-2-integration`: runnable composition and documentation.
-
-The university requires submission through NRW GitLab; GitHub alone is not the course submission.
+- `feature/player_service`: standalone Player Service.
+- `feature/match_service`: standalone Match Service.
+- `exercise_2_player_and_match_services`: runnable composition and documentation.
