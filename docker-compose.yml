@@ -11,3 +11,8 @@ services:
       - "8082:8080"
     depends_on:
       - player-service
+  lineup-service:
+    build: ./lineup-service
+    ports:
+      - "8083:8080"
+

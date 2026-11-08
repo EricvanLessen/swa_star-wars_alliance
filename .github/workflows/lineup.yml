@@ -1,0 +1,26 @@
+name: Lineup Service verification
+on:
+  push:
+    branches: [feature/lineup-service]
+    paths:
+      - 'lineup-service/**'
+      - '.github/workflows/lineup.yml'
+  pull_request:
+    paths:
+      - 'lineup-service/**'
+      - '.github/workflows/lineup.yml'
+jobs:
+  lineup-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: lineup-service/pom.xml
+      - name: Maven tests
+        run: mvn -B test
+        working-directory: lineup-service
+

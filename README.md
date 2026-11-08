@@ -57,3 +57,16 @@ Each service has a REST controller, business service and in-memory state. Match 
 - `feature/player_service`: standalone Player Service.
 - `feature/match_service`: standalone Match Service.
 - `exercise_2_player_and_match_services`: runnable composition and documentation.
+
+## Lineup Service (new, incremental)
+
+A separate hexagonal `lineup-service/` is available on port 8083.
+Run only this service with `docker compose up --build lineup-service`,
+or test it with `mvn -f lineup-service/pom.xml test`.
+See [lineup-service/README.md](lineup-service/README.md) for API examples,
+scope boundaries, and the integration dependencies on future Team/Availability contracts.
+
+**Note:** The older Exercise 2 README scenarios and CI checks refer to the pre-DDD
+Player/Match APIs. They must be updated after the team's current refactor is
+verified; this Lineup PR does not overwrite those services.
+
